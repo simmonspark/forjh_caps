@@ -240,11 +240,12 @@ class UNetSmall(nn.Module):
         decode1 = self.decode1(conv1, decode2)
 
         # final
-        final = nn.functional.upsample(
-            self.final(decode1), input.size()[2:], mode="bilinear"
+        final = nn.functional.interpolate(
+            self.final(decode1), size=input.size()[2:], mode="bilinear", align_corners=False
         )
 
         return self.sig(final)
+
 
 if __name__ == "__main__":
     dummy = torch.randn(size=(4,3,224,224))
