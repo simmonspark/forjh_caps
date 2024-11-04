@@ -9,8 +9,9 @@
 
 
 # 하드웨어 제약
-![image](https://github.com/user-attachments/assets/a9676586-a3db-4d49-85b4-be3356db64b4)
-![image](https://github.com/user-attachments/assets/3b3cc387-8b3f-4e9a-b137-d1d7385059e3)
+![image](https://github.com/user-attachments/assets/57ca0583-38b8-4dd4-9be5-c969a1e17d8a)
+![image](https://github.com/user-attachments/assets/30b5f29b-0acd-40f1-8ee4-341db32d3200)
+
 # 결과
 ![image](https://github.com/user-attachments/assets/a541b4f9-2bad-4930-bba3-42f606d365fc)
 
