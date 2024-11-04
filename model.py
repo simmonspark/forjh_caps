@@ -128,8 +128,8 @@ class UNet(nn.Module):
         self.conv3 = encoding_block(128, 256)
         self.maxpool3 = nn.MaxPool2d(kernel_size=2)
 
-        '''self.conv4 = encoding_block(256, 512)
-        self.maxpool4 = nn.MaxPool2d(kernel_size=2)'''
+        self.conv4 = encoding_block(256, 512)
+        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
 
         # center
         self.center = encoding_block(256, 512)
@@ -244,11 +244,11 @@ class UNetSmall(nn.Module):
             self.final(decode1), size=input.size()[2:], mode="bilinear", align_corners=False
         )
 
-        return self.sig(final)
+        return final
 
 
 if __name__ == "__main__":
     dummy = torch.randn(size=(4,3,224,224))
     model = UNet()
     pred = model(dummy)
-    print()
+    print(pred.shape)
