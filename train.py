@@ -78,8 +78,8 @@ def DoTrain():
     train_ds = CustomDataSet(X_train_path, Y_train_path)
     val_ds = CustomDataSet(X_val_path, Y_val_path)
 
-    train_loader = DataLoader(train_ds, batch_size=4, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=4, shuffle=True)
+    train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=32, shuffle=True)
     loss_fn = nn.BCEWithLogitsLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=1e-4)

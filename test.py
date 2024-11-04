@@ -42,12 +42,3 @@ def visualize_results(images, masks, predicted_masks, idx):
 
         plt.show()
 
-
-# 테스트 코드 실행
-if __name__ == "__main__":
-    _, (X_test_path, Y_test_path), _, _ = split_xml_path()
-    test_ds = CustomDataSet(X_test_path, Y_test_path)
-    test_loader = DataLoader(test_ds, batch_size=4, shuffle=False)
-    model_path = "trained_unet.pth"
-    model = load_model(model_path)
-    test_model(model, test_loader)
