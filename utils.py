@@ -14,7 +14,7 @@ def print_total_data_count(func):
         return result
 
     return wrapper
-
+from tqdm import tqdm
 @print_total_data_count
 def split_xml_path():
     img_dir = '/media/unsi/media/data/voc/VOC2012_train_val/VOC2012_train_val/JPEGImages'
@@ -22,7 +22,7 @@ def split_xml_path():
     img_full_path = []
     label_full_path = []
 
-    for file_path, _, file_name in os.walk(label_dir):
+    for file_path, _, file_name in tqdm(os.walk(label_dir)):
         for name in file_name:
             label_path = os.path.join(label_dir, name)
             img_name = os.path.splitext(name)[0] + '.jpg'

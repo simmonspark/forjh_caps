@@ -252,3 +252,5 @@ if __name__ == "__main__":
     model = UNet()
     pred = model(dummy)
     print(pred.shape)
+    model = UNetSmall()
+    pred = model(dummy)

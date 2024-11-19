@@ -1,4 +1,4 @@
-import torch
+'''import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 import torch.optim as optim
@@ -91,3 +91,6 @@ def DoTrain():
     print("Training Complete")
     print("Final Training Loss:", train_losses[-1])
     print("Final Validation Loss:", val_losses[-1])
+
+if __name__ == "__main__":
+    DoTrain()'''
