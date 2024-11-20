@@ -1,256 +1,159 @@
-from torch import nn
-
 import torch
+from torch import nn
+import torch.nn.functional as F
 
-# encoding block
-class encoding_block(nn.Module):
-    """
-    Convolutional batch norm block with relu activation (main block used in the encoding steps)
-    """
+# 가중치 초기화 함수
+def initialize_weights(module):
+    if isinstance(module, nn.Conv2d):
+        nn.init.xavier_normal_(module.weight)  # Xavier Initialization
+        if module.bias is not None:
+            nn.init.constant_(module.bias, 0)  # Zero Initialization
+    elif isinstance(module, nn.BatchNorm2d):
+        nn.init.constant_(module.weight, 1)  # Scale = 1
+        nn.init.constant_(module.bias, 0)    # Offset = 0
 
-    def __init__(
-        self,
-        in_size,
-        out_size,
-        kernel_size=3,
-        padding=0,
-        stride=1,
-        dilation=1,
-        batch_norm=True,
-        dropout=False,
-    ):
+# Encoding Block
+class EncodingBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, batch_norm=True):
         super().__init__()
+        padding = (kernel_size - 1) // 2  # To preserve spatial dimensions
 
+        layers = [
+            nn.ReflectionPad2d(padding),
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1),
+            nn.PReLU(),
+        ]
         if batch_norm:
+            layers.append(nn.BatchNorm2d(out_channels))
 
-            # reflection padding for same size output as input (reflection padding has shown better results than zero padding)
-            layers = [
-                nn.ReflectionPad2d(padding=(kernel_size - 1) // 2),
-                nn.Conv2d(
-                    in_size,
-                    out_size,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                    stride=stride,
-                    dilation=dilation,
-                ),
-                nn.PReLU(),
-                nn.BatchNorm2d(out_size),
-                nn.ReflectionPad2d(padding=(kernel_size - 1) // 2),
-                nn.Conv2d(
-                    out_size,
-                    out_size,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                    stride=stride,
-                    dilation=dilation,
-                ),
-                nn.PReLU(),
-                nn.BatchNorm2d(out_size),
-            ]
+        layers += [
+            nn.ReflectionPad2d(padding),
+            nn.Conv2d(out_channels, out_channels, kernel_size=kernel_size, stride=1),
+            nn.PReLU(),
+        ]
+        if batch_norm:
+            layers.append(nn.BatchNorm2d(out_channels))
 
-        else:
-            layers = [
-                nn.ReflectionPad2d(padding=(kernel_size - 1) // 2),
-                nn.Conv2d(
-                    in_size,
-                    out_size,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                    stride=stride,
-                    dilation=dilation,
-                ),
-                nn.PReLU(),
-                nn.ReflectionPad2d(padding=(kernel_size - 1) // 2),
-                nn.Conv2d(
-                    out_size,
-                    out_size,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                    stride=stride,
-                    dilation=dilation,
-                ),
-                nn.PReLU(),
-            ]
+        self.block = nn.Sequential(*layers)
 
-        if dropout:
-            layers.append(nn.Dropout())
+    def forward(self, x):
+        return self.block(x)
 
-        self.encoding_block = nn.Sequential(*layers)
-
-    def forward(self, input):
-
-        output = self.encoding_block(input)
-
-        return output
-
-
-# decoding block
-class decoding_block(nn.Module):
-    def __init__(self, in_size, out_size, batch_norm=False, upsampling=True):
+# Decoding Block
+class DecodingBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, batch_norm=True, upsampling=True):
         super().__init__()
-
         if upsampling:
             self.up = nn.Sequential(
-                nn.Upsample(mode="bilinear", scale_factor=2),
-                nn.Conv2d(in_size, out_size, kernel_size=1),
+                nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+                nn.Conv2d(in_channels, out_channels, kernel_size=1),
             )
-
         else:
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
 
-        self.conv = encoding_block(in_size, out_size, batch_norm=batch_norm)
+        self.conv = EncodingBlock(out_channels * 2, out_channels, batch_norm=batch_norm)
 
-    def forward(self, input1, input2):
+    def forward(self, x1, x2):
+        x2 = self.up(x2)  # Upsample or Transpose Convolution
+        x1 = F.interpolate(x1, size=x2.size()[2:], mode="bilinear", align_corners=False)  # Align spatial dimensions
+        return self.conv(torch.cat([x1, x2], dim=1))
 
-        output2 = self.up(input2)
-
-        output1 = nn.functional.upsample(input1, output2.size()[2:], mode="bilinear")
-
-        return self.conv(torch.cat([output1, output2], 1))
-
-
+# UNet Architecture
 class UNet(nn.Module):
-    """
-    Main UNet architecture
-    """
-
     def __init__(self, num_classes=1):
         super().__init__()
+        # Encoding
+        self.enc1 = EncodingBlock(3, 64)
+        self.enc2 = EncodingBlock(64, 128)
+        self.enc3 = EncodingBlock(128, 256)
+        self.enc4 = EncodingBlock(256, 512)
 
-        # encoding
-        self.conv1 = encoding_block(3, 64)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
+        # Bottleneck
+        self.bottleneck = EncodingBlock(512, 1024)
 
-        self.conv2 = encoding_block(64, 128)
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
+        # Decoding
+        self.dec4 = DecodingBlock(1024, 512)
+        self.dec3 = DecodingBlock(512, 256)
+        self.dec2 = DecodingBlock(256, 128)
+        self.dec1 = DecodingBlock(128, 64)
 
-        self.conv3 = encoding_block(128, 256)
-        self.maxpool3 = nn.MaxPool2d(kernel_size=2)
-
-        self.conv4 = encoding_block(256, 512)
-        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
-
-        # center
-        self.center = encoding_block(256, 512)
-
-        # decoding
-        '''self.decode4 = decoding_block(1024, 512)'''
-        self.decode3 = decoding_block(512, 256)
-        self.decode2 = decoding_block(256, 128)
-        self.decode1 = decoding_block(128, 64)
-
-        # final
+        # Final Layer
         self.final = nn.Conv2d(64, num_classes, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()  # Binary Segmentation
 
-    def forward(self, input):
+        # Initialize Weights
+        self.apply(initialize_weights)
 
-        # encoding
-        conv1 = self.conv1(input)
-        maxpool1 = self.maxpool1(conv1)
+    def forward(self, x):
+        # Encoding Path
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(F.max_pool2d(enc1, 2))
+        enc3 = self.enc3(F.max_pool2d(enc2, 2))
+        enc4 = self.enc4(F.max_pool2d(enc3, 2))
 
-        conv2 = self.conv2(maxpool1)
-        maxpool2 = self.maxpool2(conv2)
+        # Bottleneck
+        bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
 
-        conv3 = self.conv3(maxpool2)
-        maxpool3 = self.maxpool3(conv3)
+        # Decoding Path
+        dec4 = self.dec4(enc4, bottleneck)
+        dec3 = self.dec3(enc3, dec4)
+        dec2 = self.dec2(enc2, dec3)
+        dec1 = self.dec1(enc1, dec2)
 
-        '''conv4 = self.conv4(maxpool3)
-        maxpool4 = self.maxpool4(conv4)'''
+        # Final Output
+        out = self.final(dec1)
+        return self.sigmoid(out)
 
-        # center
-        center = self.center(maxpool3)
-
-        # decoding
-        '''decode4 = self.decode4(conv4, center)'''
-
-        decode3 = self.decode3(conv3, center)
-
-        decode2 = self.decode2(conv2, decode3)
-
-        decode1 = self.decode1(conv1, decode2)
-
-        # final
-        final = nn.functional.upsample(
-            self.final(decode1), input.size()[2:], mode="bilinear"
-        )
-
-        return final
-
-
+# UNetSmall Architecture
 class UNetSmall(nn.Module):
-    """
-    Main UNet architecture
-    """
-
     def __init__(self, num_classes=1):
         super().__init__()
+        # Encoding
+        self.enc1 = EncodingBlock(3, 32)
+        self.enc2 = EncodingBlock(32, 64)
+        self.enc3 = EncodingBlock(64, 128)
+        self.enc4 = EncodingBlock(128, 256)
 
-        # encoding
-        self.conv1 = encoding_block(3, 32)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
+        # Bottleneck
+        self.bottleneck = EncodingBlock(256, 512)
 
-        self.conv2 = encoding_block(32, 64)
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
+        # Decoding
+        self.dec4 = DecodingBlock(512, 256)
+        self.dec3 = DecodingBlock(256, 128)
+        self.dec2 = DecodingBlock(128, 64)
+        self.dec1 = DecodingBlock(64, 32)
 
-        self.conv3 = encoding_block(64, 128)
-        self.maxpool3 = nn.MaxPool2d(kernel_size=2)
-
-        self.conv4 = encoding_block(128, 256)
-        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
-
-        # center
-        self.center = encoding_block(256, 512)
-
-        # decoding
-        self.decode4 = decoding_block(512, 256)
-        self.decode3 = decoding_block(256, 128)
-        self.decode2 = decoding_block(128, 64)
-        self.decode1 = decoding_block(64, 32)
-
-        # final
+        # Final Layer
         self.final = nn.Conv2d(32, num_classes, kernel_size=1)
-        self.sig = nn.Sigmoid()
+        self.sigmoid = nn.Sigmoid()  # Binary Segmentation
 
-    def forward(self, input):
+        # Initialize Weights
+        self.apply(initialize_weights)
 
-        # encoding
-        conv1 = self.conv1(input)
-        maxpool1 = self.maxpool1(conv1)
+    def forward(self, x):
+        # Encoding Path
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(F.max_pool2d(enc1, 2))
+        enc3 = self.enc3(F.max_pool2d(enc2, 2))
+        enc4 = self.enc4(F.max_pool2d(enc3, 2))
 
-        conv2 = self.conv2(maxpool1)
-        maxpool2 = self.maxpool2(conv2)
+        # Bottleneck
+        bottleneck = self.bottleneck(F.max_pool2d(enc4, 2))
 
-        conv3 = self.conv3(maxpool2)
-        maxpool3 = self.maxpool3(conv3)
+        # Decoding Path
+        dec4 = self.dec4(enc4, bottleneck)
+        dec3 = self.dec3(enc3, dec4)
+        dec2 = self.dec2(enc2, dec3)
+        dec1 = self.dec1(enc1, dec2)
 
-        conv4 = self.conv4(maxpool3)
-        maxpool4 = self.maxpool4(conv4)
-
-        # center
-        center = self.center(maxpool4)
-
-        # decoding
-        decode4 = self.decode4(conv4, center)
-
-        decode3 = self.decode3(conv3, decode4)
-
-        decode2 = self.decode2(conv2, decode3)
-
-        decode1 = self.decode1(conv1, decode2)
-
-        # final
-        final = nn.functional.interpolate(
-            self.final(decode1), size=input.size()[2:], mode="bilinear", align_corners=False
-        )
-
-        return final
-
+        # Final Output
+        out = self.final(dec1)
+        return self.sigmoid(out)
 
 if __name__ == "__main__":
-    dummy = torch.randn(size=(4,3,224,224))
+    dummy_input = torch.randn(4, 3, 224, 224)
     model = UNet()
-    pred = model(dummy)
-    print(pred.shape)
-    model = UNetSmall()
-    pred = model(dummy)
+    print(model(dummy_input).shape)
+
+    small_model = UNetSmall()
+    print(small_model(dummy_input).shape)

@@ -15,7 +15,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 def train_student(train_loader, val_loader, teacher_model, epochs=20, patience=2):
     teacher_model.eval()  # Freeze teacher model during student training
     student_model = UNetSmall().to(DEVICE)
-    optimizer = optim.Adam(student_model.parameters(), lr=1e-5)
+    optimizer = optim.Adam(student_model.parameters(), lr = 2e-4)
     loss_fn = DistillationLoss()
 
     best_val_loss = float("inf")
@@ -37,6 +37,9 @@ def train_student(train_loader, val_loader, teacher_model, epochs=20, patience=2
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(student_model.parameters(), max_norm=1.0)
+            optimizer.step()
+
             optimizer.step()
 
             loop.set_postfix(loss=loss.item())
@@ -87,6 +90,9 @@ def train_step(train_loader, model, optimizer, loss_fn):
 
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+
         optimizer.step()
 
         loop.set_postfix(loss=loss.item())
@@ -129,7 +135,7 @@ def train_model_with_early_stopping(train_loader, val_loader, model, loss_fn, ep
     - patience: Number of epochs to wait for improvement before stopping.
     - save_path: Path to save the best model.
     """
-    optimizer = optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=2e-4)
     train_losses, val_losses = [], []
 
     best_val_loss = float("inf")
@@ -202,8 +208,8 @@ def compare_inference_speed(test_loader, teacher_model, student_model):
 
 def fine_tune_student(train_loader, val_loader, student_model, epochs=5, patience=2):
     print("Starting Fine-tuning of Student Model...")
-    optimizer = optim.Adam(student_model.parameters(), lr=1e-5)
-    loss_fn = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(student_model.parameters(), lr=2e-4)
+    loss_fn = nn.MSELoss()
     train_model_with_early_stopping(
         train_loader, val_loader, student_model, loss_fn, epochs, patience, save_path="student_finetuned_unet.pth"
     )
@@ -255,7 +261,7 @@ def pipeline():
     student_model = fine_tune_student(train_loader, val_loader, student_model)
 
     # Evaluate teacher and student models
-    loss_fn = nn.BCEWithLogitsLoss()
+    loss_fn = nn.MSELoss()
 
     print("Evaluating Teacher Model...")
     teacher_loss, teacher_corr = calculate_correlation_and_loss(test_loader, teacher_model, loss_fn)

@@ -7,7 +7,7 @@ class DistillationLoss(nn.Module):
         super().__init__()
         self.teacher_temp = teacher_temp
         self.alpha = alpha
-        self.bce_loss = nn.BCEWithLogitsLoss()  # Binary segmentation에 적합한 손실 함수
+        self.bce_loss = nn.MSELoss()
 
     def forward(self, student_output, teacher_output, ground_truth):
         # Distillation Loss
