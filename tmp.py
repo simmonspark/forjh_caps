@@ -7,6 +7,8 @@ from model import UNet, UNetSmall
 from CustomDataSet import CustomDataSet
 from utils import *
 from knowledge_distilation import DistillationLoss
+from scipy.stats import pearsonr
+import numpy as np
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -198,6 +200,38 @@ def compare_inference_speed(test_loader, teacher_model, student_model):
     print(f"Teacher Inference Speed: {teacher_time:.2f} ms/image")
     print(f"Student Inference Speed: {student_time:.2f} ms/image")
 
+def fine_tune_student(train_loader, val_loader, student_model, epochs=5, patience=2):
+    print("Starting Fine-tuning of Student Model...")
+    optimizer = optim.Adam(student_model.parameters(), lr=1e-5)
+    loss_fn = nn.BCEWithLogitsLoss()
+    train_model_with_early_stopping(
+        train_loader, val_loader, student_model, loss_fn, epochs, patience, save_path="student_finetuned_unet.pth"
+    )
+    print("Fine-tuning complete. Best model saved as student_finetuned_unet.pth.")
+    return student_model
+
+def calculate_correlation_and_loss(test_loader, model, loss_fn):
+    model.eval()
+    losses = []
+    correlations = []
+
+    with torch.no_grad():
+        for images, masks in tqdm(test_loader, desc="Evaluating"):
+            images, masks = images.to(DEVICE), masks.to(DEVICE)
+            predictions = model(images)
+            loss = loss_fn(predictions, masks.float()).item()
+            losses.append(loss)
+
+            # Convert tensors to numpy arrays for correlation calculation
+            pred_np = torch.sigmoid(predictions).cpu().numpy().flatten()
+            mask_np = masks.cpu().numpy().flatten()
+
+            correlation, _ = pearsonr(pred_np, mask_np)
+            correlations.append(correlation)
+
+    avg_loss = np.mean(losses)
+    avg_correlation = np.mean(correlations)
+    return avg_loss, avg_correlation
 
 def pipeline():
     # Prepare dataset and loaders
@@ -217,9 +251,22 @@ def pipeline():
     # Train student model using knowledge distillation
     student_model = train_student(train_loader, val_loader, teacher_model)
 
+    # Fine-tune student model
+    student_model = fine_tune_student(train_loader, val_loader, student_model)
+
+    # Evaluate teacher and student models
+    loss_fn = nn.BCEWithLogitsLoss()
+
+    print("Evaluating Teacher Model...")
+    teacher_loss, teacher_corr = calculate_correlation_and_loss(test_loader, teacher_model, loss_fn)
+    print(f"Teacher Model - Loss: {teacher_loss:.4f}, Correlation: {teacher_corr:.4f}")
+
+    print("Evaluating Student Model...")
+    student_loss, student_corr = calculate_correlation_and_loss(test_loader, student_model, loss_fn)
+    print(f"Student Model - Loss: {student_loss:.4f}, Correlation: {student_corr:.4f}")
+
     # Compare inference speed
     compare_inference_speed(test_loader, teacher_model, student_model)
-
 
 if __name__ == "__main__":
     pipeline()
